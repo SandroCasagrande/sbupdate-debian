@@ -1,8 +1,14 @@
-# sbupdate
+# sbupdate-debian
 
-![](https://github.com/andreyv/sbupdate/workflows/CI/badge.svg)
+This is a fork of [sbupdate](https://github.com/andreyv/sbupdate) with adaption to
+Debian based systems. The adaptions follow the related
+[policy in the Debian Linux Kernel Handbook](https://kernel-team.pages.debian.net/kernel-handbook/ch-update-hooks.html).
 
-This tool allows you to sign Arch Linux kernels using your own Secure Boot keys.
+This tool allows you to sign Debian Linux kernels using your own Secure Boot keys.
+
+All credit goes to the author of the orginal project. This project is in experimental 
+status and only sporadically tested. DO NOT EXPECT STABILITY OR REGULAR FIXES. PART OF
+THE FUNCTIONALITY MIGHT BE BROKEN.
 
 ## Installation
 
@@ -12,18 +18,18 @@ custom Secure Boot keys. See:
 * https://www.rodsbooks.com/efi-bootloaders/controlling-sb.html
 
 After you have generated your custom keys, proceed with setup:
-* Install [sbupdate-git](https://aur.archlinux.org/packages/sbupdate-git/) from AUR
+* Install sbupdate form within this directory with `sudo make install`
 * Place your custom keys in `/etc/efi-keys`
 * Configure `/etc/sbupdate.conf` (see [Configuration](#configuration))
 * Run `sudo sbupdate` for first-time image generation
 
-For each installed Arch kernel, a signed UEFI image will be generated, by default
-in `/boot/EFI/Arch/<NAME>-signed.efi`. Multiple images can be generated with
+For each installed Linux kernel, a signed UEFI image will be generated, by default
+in `/boot/efi/EFI/Linux/<NAME>-signed.efi`. Multiple images can be generated with
 advanced configuration. Now you can [add these images](#direct-booting-vs-boot-manager)
 to your UEFI firmware or boot manager configuration.
 
 After the initial setup, signed images will be (re)generated automatically when
-you install or update kernels using Pacman.
+you install or update kernels using apt.
 
 Note that the kernel command line, initramfs and boot splash will be embedded in
 the signed UEFI image.
@@ -63,14 +69,14 @@ Alternatively, you can use a boot manager. In this case you need to add the gene
 images to the boot manager configuration. For systemd-boot, the basic entry
 format is
 
-    title Arch Linux <NAME>
-    efi   /EFI/Arch/<NAME>-signed.efi
+    title Linux <NAME>
+    efi   /EFI/Linux/<NAME>-signed.efi
 
 You also need to sign your boot manager's own UEFI executables with your
 custom keys. Add corresponding filenames to the `EXTRA_SIGN` array in
 `/etc/sbupdate.conf`, for example (systemd-boot):
 
-    EXTRA_SIGN=('/boot/EFI/BOOT/BOOTX64.EFI' '/boot/EFI/systemd/systemd-bootx64.efi')
+    EXTRA_SIGN=('/boot/efi/EFI/BOOT/BOOTX64.EFI' '/boot/efi/EFI/systemd/systemd-bootx64.efi')
 
 and re-run the tool if needed. You should remember to run the tool every time
 you update your boot manager's files (e. g., after `sudo bootctl update`).
@@ -84,7 +90,7 @@ the boot may fail. See [#4](https://github.com/andreyv/sbupdate/issues/4).
 
 Typically ESP is mounted on `/boot` and contains also the original, unsigned
 files such as the Linux kernel image and initramfs. You may choose to mount ESP
-on a different directory (for example, [`/efi`](https://www.freedesktop.org/software/systemd/man/bootctl.html#--esp-path=))
+on a different directory (for example, [`/boot/efi`](https://www.freedesktop.org/software/systemd/man/bootctl.html#--esp-path=))
 and keep `/boot` itself on the secure root file system. This way ESP will only
 contain signed images which cannot be tampered with.
 

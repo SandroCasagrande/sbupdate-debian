@@ -1,0 +1,26 @@
+#!/bin/sh
+
+set -e
+PAR=ever
+
+# check for maintainer param
+if [ -n "${DEB_MAINT_PARAMS}" ]; then
+	PAR=none
+	if [ `echo "${DEB_MAINT_PARAMS}" | grep -v abort | grep -c remove` -eq 1 ]
+	then PAR=remove; fi
+fi
+
+# check for configure|upgrade|remove|purge
+case "$PAR" in
+
+  ever|remove)
+    if [ -f /usr/bin/sbupdate ]; then
+      if [ -f /etc/sbupdate.conf ]; then
+        # Do not abort kernel removal in case of error
+        /usr/bin/sbupdate -r -k $1 $2 >&2 || true
+      fi
+    fi
+    ;;
+
+esac
+

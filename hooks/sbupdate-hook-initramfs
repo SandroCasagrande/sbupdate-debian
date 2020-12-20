@@ -1,0 +1,28 @@
+#!/bin/sh
+
+set -e
+PAR=ever
+
+# check for maintainer param
+if [ ! -z "${DPKG_MAINTSCRIPT_PACKAGE}" ]
+then PAR="${DPKG_MAINTSCRIPT_PACKAGE}"; fi
+
+case "$PAR" in
+
+  linux-image-*)
+    # skip, scince sbupdate will be run by the kernel postinst hook.
+    true
+    ;;
+
+  *)
+    if [ -f /usr/bin/sbupdate ]; then
+      if [ -f /etc/sbupdate.conf ]; then
+        /usr/bin/sbupdate -k $1 >&2
+      else
+        echo "Warning: Not updating EFISTUB; /etc/sbupdate.conf not found!" >&2
+      fi
+    fi
+    ;;
+
+esac
+

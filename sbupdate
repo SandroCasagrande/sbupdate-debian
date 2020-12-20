@@ -1,5 +1,8 @@
 #!/bin/bash
 #
+# sbupdate-debian -- Generate and sign kernel images for UEFI Secure Boot on Debian Linux
+# This program is an adaption to Debian kernel maintanance specifics. It is based on ...
+#
 # sbupdate -- Generate and sign kernel images for UEFI Secure Boot on Arch Linux
 # Copyright (C) 2016-2020 Andrey Vihrov <andrey.vihrov@gmail.com>
 #
@@ -16,11 +19,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# Major differences to the original sbupdate for Arch:
+# - The parameter -k takes a single optional parameter, which is a linux version name.
+#   If given, only this name is processed and a second optional parameter is allowed. 
+#   This second parameter is the path of vmlinuz, which is checked for consistency.
+# - The kernels are directly found in the /boot/ directory, instead of subdirectories
+#   of /usr/lib/modules/. We configure this in the global variable KERNELS_PATH_PREFIX.
+
 set -eu
 
 shopt -s extglob
 
 readonly CONFFILE="/etc/sbupdate.conf"
+
+# We assume the location of kernels to be composed as# ${KERNELS_PATH_PREFIX}${TARGET},
+# where TARGET is the first argument passed to this script. Otherwise, we fail explicitly.
+readonly KERNELS_PATH_PREFIX="/boot/vmlinuz-"
 
 # Print an error and return unsuccessfully
 #  $1: error message
@@ -32,15 +46,15 @@ function error() {
 # Load configuration
 function load_config() {
   KEY_DIR="/etc/efi-keys"
-  ESP_DIR="/boot"
-  OUT_DIR="EFI/Arch"
-  SPLASH="/usr/share/systemd/bootctl/splash-arch.bmp"
+  ESP_DIR="/boot/efi"
+  OUT_DIR="EFI/Linux"
+  SPLASH="/dev/null"
   BACKUP=1
   EXTRA_SIGN=()
   declare -g -A CONFIGS CMDLINE INITRD
 
   shopt -s nullglob
-  INITRD_PREPEND=(/boot/@(intel|amd)-ucode.img)
+  INITRD_PREPEND=()
   shopt -u nullglob
 
   # shellcheck disable=SC1090
@@ -62,21 +76,37 @@ function load_config() {
 function parse_args() {
   HOOK=0
   REMOVE=0
+  TARGET=
+  TARGET_PATH=
 
-  while getopts "kr" opt; do
+  while getopts "k:r" opt; do
     case "${opt}" in
-      k) HOOK=1 ;;
+      k) HOOK=1; TARGET=${OPTARG} ;;
       r) REMOVE=1 ;;
       ?) exit 1 ;;
     esac
   done
+  shift $((OPTIND-1))
+  local arg_rest=$@
+    
+  if (( HOOK )); then
+    # Set path according to fixed format
+    TARGET_PATH="${KERNELS_PATH_PREFIX}${TARGET}"
+    # if optionally provided path is present check it for consistency
+    if (( "${#arg_rest}" > 0 )); then
+      local ext_target_path="${arg_rest[0]}"
+      if [[ "${TARGET_PATH}" != "${ext_target_path}" ]]; then
+        error "Provided kernel path ${ext_target_path} does not match ${TARGET_PATH} as expected by this scripts hard-coded format."
+      fi
+    fi
+  fi
 
-  readonly HOOK REMOVE
+  readonly HOOK REMOVE TARGET TARGET_PATH
 }
 
 # Find the location of the systemd EFI stub
 function find_efi_stub() {
-  local uname; uname="$(uname -m)"
+  local uname="$(uname -m)"
   case "${uname}" in
     x86_64)
       readonly EFISTUB="/usr/lib/systemd/boot/efi/linuxx64.efi.stub"
@@ -96,17 +126,14 @@ function get_kernels() {
   declare -g -a KERNELS
 
   if (( HOOK )); then
-    # The script was run from the hook. Read standard input to determine
-    # which kernels we need to update.
-    while read -r target; do
-      if [[ "${target}" =~ ^usr/lib/modules/.+/vmlinuz$ ]]; then
-        # Regular kernel
-        KERNELS+=("/${target}")
-      else
-        # Another dependency; update all kernels
-        force_all=1
-      fi
-    done
+    # The script was run from the hook.
+    if (( REMOVE )) || [[ -e "${TARGET_PATH}" ]]; then
+      # Regular kernel
+      KERNELS+=("${TARGET_PATH}")
+    else
+      # Another dependency; update all kernels
+      force_all=1
+    fi
   else
     # The script was run by the user
     force_all=1
@@ -114,7 +141,7 @@ function get_kernels() {
 
   if (( force_all )); then
     (( ! REMOVE )) || error "trying to remove all kernels"
-    KERNELS=(/usr/lib/modules/*/vmlinuz)
+    KERNELS=("${KERNELS_PATH_PREFIX}"*)
   fi
   readonly -a KERNELS
 }
@@ -128,7 +155,7 @@ function output_name() {
 # Remove a signed kernel image
 #   $1: image name
 function remove_image() {
-  local output; output="$(output_name "$1")"
+  local output="$(output_name "$1")"
   echo "Removing $(basename "${output}")"
   if (( BACKUP )); then
     mv -f "${output}" "${output}.bak"
@@ -147,12 +174,12 @@ function sign_file() {
 #   $1: image name
 #   $2: kernel location
 function update_image() {
-  local initrd="${INITRD[$1]:-/boot/initramfs-$1.img}"
+  local initrd="${INITRD[$1]:-/boot/initrd.img-$1}"
   local cmdline="${CMDLINE[$1]:-${CMDLINE_DEFAULT}}"
-  local output; output="$(output_name "$1")"
+  local output="$(output_name "$1")"
 
   echo "Generating and signing $(basename "${output}")"
-
+  
   # Create a combined binary with systemd EFI stub. For additional information see:
   #   https://github.com/systemd/systemd/blob/master/src/boot/efi/stub.c
   #   https://github.com/systemd/systemd/blob/master/test/test-efi-create-disk.sh
@@ -175,11 +202,9 @@ function update_image() {
 
 # Map kernel versions to image names and process changes
 function process_kernels() {
-  local kdir name
+  local name
   for k in "${KERNELS[@]}"; do
-    kdir="$(dirname "$k")"
-    name="$(<"${kdir}/pkgbase")"
-    [[ -f "${kdir}/kernelbase" ]] && name="$(<"${kdir}/kernelbase")"
+    name="${k#"${KERNELS_PATH_PREFIX}"}"
     for cfg in ${CONFIGS[${name}]:-${name}}; do # Note: unquoted expansion
       if (( REMOVE )); then
         remove_image "${cfg}"
@@ -208,7 +233,7 @@ function check_sign_extra_file() {
 function main() {
   load_config
   parse_args "$@"
-
+  
   find_efi_stub
   get_kernels
 

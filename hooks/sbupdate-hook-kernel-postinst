@@ -1,0 +1,27 @@
+#!/bin/sh
+
+set -e
+PAR=ever
+
+# check for maintainer param
+if [ -n "${DEB_MAINT_PARAMS}" ]; then
+	PAR=none
+	if [ `echo "${DEB_MAINT_PARAMS}" | grep -v abort | grep -c configure` -eq 1 ]
+	then PAR=configure; fi
+fi
+
+# check for configure|upgrade|remove|purge
+case "$PAR" in
+
+  ever|configure)
+    if [ -f /usr/bin/sbupdate ]; then
+      if [ -f /etc/sbupdate.conf ]; then
+        /usr/bin/sbupdate -k $1 $2 >&2
+      else
+        echo "Warning: Not updating EFISTUB; /etc/sbupdate.conf not found!" >&2
+      fi
+    fi
+    ;;
+
+esac
+
